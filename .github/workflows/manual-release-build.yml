@@ -1,0 +1,116 @@
+name: Manual Firmware Release Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build and publish firmware release
+    runs-on: ubuntu-latest
+
+    env:
+      BASE_VERSION: v1.0.0
+      PLATFORMIO_ENV: esp32s3_uart
+      PROJECT_NAME: ESP32S3_Boot_BLE_HID_PIO
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set automatic version variables
+        shell: bash
+        run: |
+          TAG="${BASE_VERSION}.${GITHUB_RUN_NUMBER}"
+          PACKAGE_NAME="${PROJECT_NAME}_${TAG}"
+
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> "$GITHUB_ENV"
+
+          echo "Release tag: ${TAG}"
+          echo "Package name: ${PACKAGE_NAME}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install PlatformIO
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+
+      - name: Build firmware
+        shell: bash
+        run: |
+          pio run -e "${PLATFORMIO_ENV}"
+
+      - name: Prepare release package
+        shell: bash
+        run: |
+          mkdir -p "release/${PACKAGE_NAME}"
+
+          cp ".pio/build/${PLATFORMIO_ENV}/firmware.bin" "release/${PACKAGE_NAME}/${PACKAGE_NAME}.bin"
+
+          if [ -f ".pio/build/${PLATFORMIO_ENV}/firmware.elf" ]; then
+            cp ".pio/build/${PLATFORMIO_ENV}/firmware.elf" "release/${PACKAGE_NAME}/${PACKAGE_NAME}.elf"
+          fi
+
+          if [ -f ".pio/build/${PLATFORMIO_ENV}/firmware.map" ]; then
+            cp ".pio/build/${PLATFORMIO_ENV}/firmware.map" "release/${PACKAGE_NAME}/${PACKAGE_NAME}.map"
+          fi
+
+          cp "platformio.ini" "release/${PACKAGE_NAME}/platformio.ini"
+
+          if [ -f "README.md" ]; then
+            cp "README.md" "release/${PACKAGE_NAME}/README.md"
+          fi
+
+          cat > "release/${PACKAGE_NAME}/BUILD_INFO.txt" << EOF
+          Project: ${PROJECT_NAME}
+          Version: ${TAG}
+          Base version: ${BASE_VERSION}
+          Build number: ${GITHUB_RUN_NUMBER}
+          Environment: ${PLATFORMIO_ENV}
+          Board: esp32-s3-devkitc-1
+          Framework: Arduino
+          Build date UTC: $(date -u +"%Y-%m-%d %H:%M:%S")
+          Git commit: ${GITHUB_SHA}
+          Git branch/ref: ${GITHUB_REF_NAME}
+          GitHub run number: ${GITHUB_RUN_NUMBER}
+          GitHub run ID: ${GITHUB_RUN_ID}
+
+          Stable firmware baseline:
+          - BLE HID using HijelHID_BLEKeyboard
+          - Wi-Fi + NTP time synchronization
+          - SW BOOT interrupt on GPIO0
+          - RGB LED on GPIO48
+          - Text sent character by character
+          - No TAB
+          - Fixed line ending: \n
+          - Upload target: COM12 locally, not used by GitHub Actions
+          EOF
+
+          cd release
+          zip -r "${PACKAGE_NAME}.zip" "${PACKAGE_NAME}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_NAME }}
+          path: release/${{ env.PACKAGE_NAME }}.zip
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: "Stable BLE HID WiFi NTP Firmware ${{ env.TAG }}"
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release/${{ env.PACKAGE_NAME }}.zip
+            release/${{ env.PACKAGE_NAME }}/${{ env.PACKAGE_NAME }}.bin
