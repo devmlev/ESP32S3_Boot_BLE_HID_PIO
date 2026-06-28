@@ -1,0 +1,7 @@
+Copy your working Arduino library folder here.
+
+Expected include in src/main.cpp:
+
+#include <HijelHID_BLEKeyboard.h>
+
+This project does not include the HijelHID_BLEKeyboard library because it must match the version already working in your Arduino IDE.
