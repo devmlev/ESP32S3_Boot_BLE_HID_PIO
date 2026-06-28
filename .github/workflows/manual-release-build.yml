@@ -37,39 +37,43 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            ~/.platformio/penv
+            .pio
+          key: platformio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            platformio-${{ runner.os }}-
+
       - name: Install PlatformIO
         shell: bash
         run: |
           python -m pip install --upgrade pip
           pip install platformio
 
+      - name: Install project libraries
+        shell: bash
+        run: |
+          pio pkg install -e "${PLATFORMIO_ENV}"
+
       - name: Build firmware
         shell: bash
         run: |
           pio run -e "${PLATFORMIO_ENV}"
 
-      - name: Prepare release package
+      - name: Prepare release firmware
         shell: bash
         run: |
-          mkdir -p "release/${PACKAGE_NAME}"
+          mkdir -p release
 
-          cp ".pio/build/${PLATFORMIO_ENV}/firmware.bin" "release/${PACKAGE_NAME}/${PACKAGE_NAME}.bin"
+          cp ".pio/build/${PLATFORMIO_ENV}/firmware.bin" "release/${PACKAGE_NAME}.bin"
 
-          if [ -f ".pio/build/${PLATFORMIO_ENV}/firmware.elf" ]; then
-            cp ".pio/build/${PLATFORMIO_ENV}/firmware.elf" "release/${PACKAGE_NAME}/${PACKAGE_NAME}.elf"
-          fi
-
-          if [ -f ".pio/build/${PLATFORMIO_ENV}/firmware.map" ]; then
-            cp ".pio/build/${PLATFORMIO_ENV}/firmware.map" "release/${PACKAGE_NAME}/${PACKAGE_NAME}.map"
-          fi
-
-          cp "platformio.ini" "release/${PACKAGE_NAME}/platformio.ini"
-
-          if [ -f "README.md" ]; then
-            cp "README.md" "release/${PACKAGE_NAME}/README.md"
-          fi
-
-          cat > "release/${PACKAGE_NAME}/BUILD_INFO.txt" << EOF
+          cat > "release/BUILD_INFO_${TAG}.txt" << EOF
           Project: ${PROJECT_NAME}
           Version: ${TAG}
           Base version: ${BASE_VERSION}
@@ -91,26 +95,24 @@ jobs:
           - Text sent character by character
           - No TAB
           - Fixed line ending: \n
-          - Upload target: COM12 locally, not used by GitHub Actions
+          - GitHub Actions builds firmware only; upload to board remains local.
           EOF
-
-          cd release
-          zip -r "${PACKAGE_NAME}.zip" "${PACKAGE_NAME}"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PACKAGE_NAME }}
-          path: release/${{ env.PACKAGE_NAME }}.zip
+          path: |
+            release/${{ env.PACKAGE_NAME }}.bin
+            release/BUILD_INFO_${{ env.TAG }}.txt
           if-no-files-found: error
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
-          name: "Stable BLE HID WiFi NTP Firmware ${{ env.TAG }}"
+          name: Stable BLE HID WiFi NTP Firmware ${{ env.TAG }}
           prerelease: false
           generate_release_notes: true
           files: |
-            release/${{ env.PACKAGE_NAME }}.zip
-            release/${{ env.PACKAGE_NAME }}/${{ env.PACKAGE_NAME }}.bin
+            release/${{ env.PACKAGE_NAME }}.bin
